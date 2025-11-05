@@ -73,6 +73,11 @@
     #root {
       min-height: 100vh;
     }
+    
+    .loader-error {
+      max-width: 720px;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -85,32 +90,78 @@
 
   <!-- Initialize app only after the JSX file has been loaded/transformed -->
   <script>
-    // called when the JSX file finishes loading (onload on the JSX <script>)
-    function initApp() {
-      try {
-        // prefer the global variable if available; otherwise attempt to reference the symbol
-        const AppComponent = window.RentalInspectionApp || window.RentalInspectionApp === undefined ? window.RentalInspectionApp : (typeof RentalInspectionApp !== 'undefined' ? RentalInspectionApp : null);
-        // If the symbol is not available, try to use the identifier directly (this is robust across environments)
-        const app = (typeof RentalInspectionApp !== 'undefined') ? RentalInspectionApp : (window.RentalInspectionApp || null);
-        if (!app || !window.ReactDOM || !document.getElementById('root')) {
-          console.error('App or ReactDOM not available yet. initApp aborted.', { app, reactDom: !!window.ReactDOM });
-          return;
-        }
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        // Render using the component identifier directly (JSX transformed by Babel will define it)
-        root.render(React.createElement(typeof RentalInspectionApp !== 'undefined' ? RentalInspectionApp : window.RentalInspectionApp));
-      } catch (err) {
-        console.error('initApp error', err);
-      } finally {
-        // hide loading regardless to avoid stuck loader; if rendering failed user can see console output
-        const loader = document.getElementById('loading');
-        if (loader) loader.style.display = 'none';
+    // Safer initializer: poll for the global component and ReactDOM, render when available.
+    // If it never appears, replace loader with a helpful error message and diagnostics.
+    (function(){
+      const rootEl = document.getElementById('root');
+      const loaderEl = document.getElementById('loading');
+      let attempts = 0;
+      const maxAttempts = 20; // ~10 seconds (20 * 500ms)
+      const interval = 500;
+
+      function showLoaderError(message) {
+        if (!loaderEl) return;
+        loaderEl.innerHTML = `
+          <div class="loader-error">
+            <div style="font-size:20px;font-weight:700;margin-bottom:8px;color:#fff">Failed to initialize Inspection App</div>
+            <div style="color:#fff;opacity:.95;margin-bottom:12px">${message}</div>
+            <div style="color:#fff;font-size:13px">Open DevTools → Console for details.</div>
+          </div>
+        `;
       }
-    }
+
+      function tryInit() {
+        attempts++;
+        try {
+          const App = window.RentalInspectionApp;
+          if (App && window.ReactDOM && rootEl) {
+            try {
+              const root = ReactDOM.createRoot(rootEl);
+              root.render(React.createElement(App));
+              if (loaderEl) loaderEl.style.display = 'none';
+              console.info('initApp: application initialized');
+              return;
+            } catch (renderErr) {
+              console.error('initApp: render error', renderErr);
+              showLoaderError('Rendering failed — see console for details.');
+              return;
+            }
+          }
+
+          if (attempts >= maxAttempts) {
+            const status = {
+              appDefined: !!window.RentalInspectionApp,
+              reactDom: !!window.ReactDOM,
+              jsxLoaded: undefined
+            };
+            // Try to detect if the JSX file loaded by fetching once (best-effort)
+            fetch('./rental-inspection-app-complete.jsx', { method: 'HEAD' })
+              .then(r => {
+                status.jsxLoaded = r.ok ? r.status : 'failed';
+                console.error('initApp: timed out waiting for app resources', status);
+                showLoaderError('Timed out waiting for application to start. See console for diagnostic info.');
+              })
+              .catch(e => {
+                status.jsxLoaded = 'fetch-error';
+                console.error('initApp: timed out and fetch failed', status, e);
+                showLoaderError('Timed out waiting for application and fetch failed. See console for details.');
+              });
+            return;
+          }
+
+          setTimeout(tryInit, interval);
+        } catch (err) {
+          console.error('initApp unexpected error', err);
+          showLoaderError('Unexpected initialization error. See console.');
+        }
+      }
+
+      tryInit();
+    })();
   </script>
 
-  <!-- Load the JSX application file and call initApp when it's ready -->
-  <script type="text/babel" src="./rental-inspection-app-complete.jsx" onload="initApp()"></script>
+  <!-- Load the JSX application file (Babel will transform it in-browser) -->
+  <script type="text/babel" src="./rental-inspection-app-complete.jsx"></script>
   
 </body>
 </html>
