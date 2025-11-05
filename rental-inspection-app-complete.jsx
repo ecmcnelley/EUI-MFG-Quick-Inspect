@@ -4298,6 +4298,6 @@ const RentalInspectionApp = () => {
     </div>
   );
 };
-
-// RentalInspectionApp is now global
 window.RentalInspectionApp = RentalInspectionApp;
+// RentalInspectionApp is now global
+
